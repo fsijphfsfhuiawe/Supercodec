@@ -344,37 +344,40 @@ class Supercodec(nn.Module):
     def __init__(
             self,
             *,
-            channels=32,
-            strides=(2, 4, 5, 8),
-            channel_mults=(2, 4, 8, 16),
+            channels=32, # 初始通道数
+            strides=(2, 4, 5, 8), # 卷积层步幅
+            channel_mults=(2, 4, 8, 16), # 每层通道数的倍数
             codebook_dim=512,
             codebook_size=1024,
             rq_num_quantizers=8,
             input_channels=1,
             enc_cycle_dilations=(1, 3, 9),
             dec_cycle_dilations=(1, 3, 9),
-            target_sample_hz=16000,
-            shared_codebook=False,
+            target_sample_hz=16000, # 目标采样率，用于信号的重采样
+            shared_codebook=False, # 是否共享编解码器的码本
             training=False
     ):
         super().__init__()
 
         # for autosaving the config
-
+        # 将 __init__ 方法中的所有参数（除了 self 和 __class__）存储在 _locals 字典中
         _locals = locals()
         _locals.pop('self', None)
         _locals.pop('__class__', None)
+        # 使用 pickle.dumps 将其序列化并保存在 self._configs 中
         self._configs = pickle.dumps(_locals)
 
         # rest of the class
 
         self.target_sample_hz = target_sample_hz  # for resampling on the fly
-
         self.single_channel = input_channels == 1
         self.strides = strides
 
         layer_channels = tuple(map(lambda t: t * channels, channel_mults))
         layer_channels = (channels, *layer_channels)
+        # layer_channels[:-1] 是去掉最后一个元素（即最后一层通道数）的列表，表示每一层的输入通道数
+        # layer_channels[1:] 是去掉第一个元素的列表，表示每一层的输出通道数
+        # * zip 函数将输入通道数和输出通道数逐一配对，chan_in_out_pairs 则包含了每一层卷积的输入输出通道数配对
         chan_in_out_pairs = tuple(zip(layer_channels[:-1], layer_channels[1:]))
 
         encoder_blocks = []
@@ -387,8 +390,6 @@ class Supercodec(nn.Module):
             CausalConv1d(layer_channels[-1], codebook_dim, 3)
         )
 
-
-        
         self.rq = ResidualVQ(
             dim=codebook_dim,
             num_quantizers=rq_num_quantizers,
@@ -464,9 +465,11 @@ class Supercodec(nn.Module):
         start_time = time.time()
         x, ps = pack([x], '* n')
 
-        if exists(input_sample_hz):
+        if exists(input_sample_hz): # 上面将input_sample_hz设置为了none？
             x = resample(x, input_sample_hz, self.target_sample_hz)
+            # print("[in supercodec__signal resample size : {}".format(x.size()))
 
+        # 调整信号的长度，使其符合序列长度的倍数（seq_len_multiple_of）
         x = curtail_to_multiple(x, self.seq_len_multiple_of)
         if x.ndim == 2:
             x = rearrange(x, 'b n -> b 1 n')
@@ -480,11 +483,14 @@ class Supercodec(nn.Module):
             return x_new, indices
         
         x_new = rearrange(x_new, 'b c n -> b n c')
-        
+        # print("[in supercodec__signal resample size : {}".format(x_new.size()))
         recon_x = self.decoder(x_new)
-        
-        if return_recons_only:
+        # print("[in supercodec__signal decoder size : {}".format(recon_x.size()))
+        if return_recons_only: # 只返回重构的信号
             recon_x, = unpack(recon_x, ps, '* c n')
             if self.training:
+                # print("training")
                 return recon_x, commit_loss.sum()
+            # print("[in supercodec__ : {}".format(recon_x.size()))
             return recon_x
+

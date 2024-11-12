@@ -15,6 +15,7 @@ from torch.utils.data import Dataset, DataLoader
 import random
 from utils import curtail_to_multiple
 from scipy.io.wavfile import read
+import soundfile as sf
 from einops import rearrange
 
 # helper functions
@@ -34,6 +35,9 @@ MAX_WAV_VALUE = 32768.0
 def load_wav(full_path):
     sampling_rate, data = read(full_path)
     return data, sampling_rate
+# def load_wav(full_path):
+#     data, sampling_rate = sf.read(full_path)
+#     return data, sampling_rate
 @beartype
 class SoundDataset(Dataset):
     def __init__(

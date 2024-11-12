@@ -37,12 +37,11 @@ def train(rank, a, h):
     torch.cuda.manual_seed(h.seed)
     device = torch.device('cuda:{:d}'.format(rank))
 
-
     supercodec = Supercodec(
-        codebook_size=h.codebook_size,
-        codebook_dim=h.codebook_dim,
+        codebook_size=h.codebook_size, #1024
+        codebook_dim=h.codebook_dim, #256
         rq_num_quantizers=h.rq_num_quantizers,
-        shared_codebook = False,
+        shared_codebook = False,    
         strides=h.strides,
         channel_mults=h.channel_mults,
         training=True
@@ -231,12 +230,19 @@ def train(rank, a, h):
                             wave = batch
                             wave = wave.to(device)
                             recons = supercodec(wave, return_recons_only = True)
+                            # print("*** In {} round: wave size:{}, recons size:{}".format(j, wave.size(), recons.size()))
                             wave_mel = mel_spectrogram(wave.squeeze(1), h.n_fft, h.num_mels, h.sampling_rate,
                                                           h.hop_size, h.win_size,
                                                           h.fmin, h.fmax_for_loss)
                             y_g_hat_mel = mel_spectrogram(recons.squeeze(1), h.n_fft, h.num_mels, h.sampling_rate,
                                                           h.hop_size, h.win_size,
                                                           h.fmin, h.fmax_for_loss)
+                            # print("*** wave_mel size:{}, y_g_hat_mel size:{}".format(j, wave_mel.size(), y_g_hat_mel.size()))
+                            target_length = min(wave_mel.shape[2], y_g_hat_mel.shape[2])  # 选择较小的尺寸
+                            wave_mel = wave_mel[:, :, :target_length]  # 截断 wave_mel
+                            y_g_hat_mel = y_g_hat_mel[:, :, :target_length]  # 截断 y_g_hat_mel
+                            # print("*** In {} round: wave size:{}, recons size:{}".format(j, wave.size(), recons.size()))
+
 
                             val_err_tot += F.l1_loss(wave_mel, y_g_hat_mel).item()
                             if j <= 4:
@@ -268,12 +274,22 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--group_name', default=None)
-    parser.add_argument('--input_wavs_dir', default="")
-    parser.add_argument('--input_wavs_dir_validation', default="")
-    parser.add_argument('--input_training_file', default="")
+    # parser.add_argument('--input_wavs_dir', default="/home/datasets2/data_yifan/")
+    # parser.add_argument('--input_wavs_dir_validation', default="/home/datasets2/data_yifan/")
+    # parser.add_argument('--input_training_file', default="/home/datasets2/data_yifan/librispeech/LibriSpeech/train-clean-100.txt")
+    # parser.add_argument('--input_validation_file',
+    #                     default="/home/datasets2/data_yifan/librispeech/LibriSpeech/validation.txt")
+    
+    parser.add_argument('--input_wavs_dir', default="/home/datasets2/youqiang/")
+    parser.add_argument('--input_wavs_dir_validation', default="/home/datasets2/youqiang/")
+    parser.add_argument('--input_training_file', default="/home/datasets2/youqiang/Librispeech/training.txt")
     parser.add_argument('--input_validation_file',
-                        default="")
-    parser.add_argument('--checkpoint_path', default='test/')
+                        default="/home/datasets2/youqiang/Librispeech/validation.txt")
+    # parser.add_argument('--checkpoint_path', default='/home/datasets2/data_yifan/checkpoint/super-codec') # 1 GPU & batchsize 8 
+    # ! 改输出路径
+    # parser.add_argument('--checkpoint_path', default='/home/datasets2/data_yifan/checkpoint/super-codec-main_1-32') # 1 GPU & batchsize 32
+    parser.add_argument('--checkpoint_path', default='/home/datasets2/data_yifan/checkpoint/super-codec-main_1-16') # 1 GPU & batchsize 8 
+    
     parser.add_argument('--config', default='config_v1.json')
     parser.add_argument('--training_epochs', default=3100, type=int)
     parser.add_argument('--apply_grad_penalty_every', default=4, type=int)
@@ -310,3 +326,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

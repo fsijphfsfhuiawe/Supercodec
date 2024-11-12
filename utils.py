@@ -103,27 +103,42 @@ hann_window = {}
 
 
 def mel_spectrogram(y, n_fft, num_mels, sampling_rate, hop_size, win_size, fmin, fmax,center=False):
+    # 检查输入信号的尺寸是否是在常见音频范围内（-1，1）
     if torch.min(y) < -1.:
         print('min value is ', torch.min(y))
     if torch.max(y) > 1.:
         print('max value is ', torch.max(y))
 
-    global mel_basis, hann_window
-    if fmax not in mel_basis:
-        mel = librosa_mel_fn(sampling_rate, n_fft, num_mels, fmin, fmax)
+    # print("------mel_spectrogram: input[1] size:{}".format(y.size()))
+    global mel_basis, hann_window # 梅尔基底和汉宁窗
+    if fmax not in mel_basis: # 如果 fmax 对应的梅尔基底矩阵还没有计算过
+        mel = librosa_mel_fn(sampling_rate, n_fft, num_mels, fmin, fmax) # 用 librosa_mel_fn 来计算并缓存
         mel_basis[str(fmax)+'_'+str(y.device)] = torch.from_numpy(mel).float().to(y.device)
         hann_window[str(y.device)] = torch.hann_window(win_size).to(y.device)
 
+    # 对y进行变换：[B, L] -> [B, 1, L]
+    # 对y的第二个维度（L）进行填充，填充的大小由 n_fft 和 hop_size 决定，使用反射模式填充
     y = torch.nn.functional.pad(y.unsqueeze(1), (int((n_fft-hop_size)/2), int((n_fft-hop_size)/2)), mode='reflect')
+    # print("y after pad size:{}".format(y.size()))
+    # [B, 1, L] -> [B, L]
     y = y.squeeze(1)
 
+    # 计算短时傅里叶变换：
     spec = torch.stft(y, n_fft, hop_length=hop_size, win_length=win_size, window=hann_window[str(y.device)],
                       center=center, pad_mode='reflect', normalized=False, onesided=True)
+   
+    # print("spec after stft size:{}".format(spec.size()))
 
+    # 计算频谱幅度：
     spec = torch.sqrt(spec.pow(2).sum(-1)+(1e-9))
+    # print("spec after sqrt size:{}".format(spec.size()))
 
+    # 与梅尔基底矩阵相乘：
     spec = torch.matmul(mel_basis[str(fmax)+'_'+str(y.device)], spec)
+    # print("spec after matmul size:{}".format(spec.size()))
+    # 频谱归一化处理：没有改变维度
     spec = spectral_normalize_torch(spec)
+    # print("------spec final size:{}".format(spec.size()))
 
     return spec
 # functions
