@@ -355,7 +355,7 @@ class Supercodec(nn.Module):
             dec_cycle_dilations=(1, 3, 9),
             target_sample_hz=16000, # 目标采样率，用于信号的重采样
             shared_codebook=False, # 是否共享编解码器的码本
-            training=False
+            training=False # 默认以推理模式进行初始化
     ):
         super().__init__()
 
@@ -383,6 +383,7 @@ class Supercodec(nn.Module):
         encoder_blocks = []
 
         for ((chan_in, chan_out), layer_stride) in zip(chan_in_out_pairs, strides):
+            # * zip使用起来很方便
             encoder_blocks.append(SBMP_Encoder(chan_in, chan_out, layer_stride, enc_cycle_dilations))
         self.encoder = nn.Sequential(
             CausalConv1d(input_channels, channels, 7),
@@ -398,13 +399,14 @@ class Supercodec(nn.Module):
             kmeans_iters=10,
             shared_codebook = shared_codebook,
         )
+        """ Follows Algorithm 1. in https://arxiv.org/pdf/2107.03312.pdf """
 
 
         decoder_blocks = []
 
         for ((chan_in, chan_out), layer_stride) in zip(reversed(chan_in_out_pairs), reversed(strides)):
+            # * decoder对称就用reversed
             decoder_blocks.append(SBMP_Decoder(chan_out, chan_in, layer_stride, dec_cycle_dilations))
-
 
         self.decoder = nn.Sequential(
             CausalConv1d(codebook_dim, layer_channels[-1], 7),
@@ -417,16 +419,20 @@ class Supercodec(nn.Module):
 
         self.training = training
 
+    # 使用了 Python 的 @property 装饰器
+    # 使得 configs 看起来像是一个只读属性
+    # * 但实际上它是通过 pickle.loads 方法动态计算得到的（对应前面的pickle.dumps)
     @property
     def configs(self):
         return pickle.loads(self._configs)
 
+    #xxx: 没有在哪里用到这个函数?
     def decode_from_codebook_indices(self, quantized_indices):
         codes = self.rq.get_codes_from_indices(quantized_indices)
         x = reduce(codes, 'q ... -> ...', 'sum')
         x = rearrange(x, 'b n c -> b c n')
         return self.decoder(x)
-
+    #xxx: 没有在哪里用到这个函数?
     def save(self, path):
         path = Path(path)
         pkg = dict(
@@ -494,3 +500,19 @@ class Supercodec(nn.Module):
             # print("[in supercodec__ : {}".format(recon_x.size()))
             return recon_x
 
+# NOTE 调试模块的代码写法
+if __name__ == "__main__":
+    x = torch.randn(8, 16000)
+    supercodec = Supercodec(strides=(4,4,4,5), channel_mults=(4,4,8,8))
+    y = supercodec(x)
+    print(y.shape) # torch.Size([8, 1, 16000])
+    for n, m in supercodec.named_modules(): # named_modules() 方法遍历模型中的每个子模块。n 是子模块的名称，m 是子模块的实例
+        o = m.extra_repr() # 获取当前模块的额外描述信息; extra_repr() 是 nn.Module 的一个方法，它返回模块的描述信息（如果没有自定义，它返回空字符串）
+        p = sum([np.prod(p.size()) for p in m.parameters()]) # 计算当前模块的参数总数：
+        # m.parameters() 返回当前模块的所有参数（如权重、偏置）；np.prod(p.size()) 计算每个参数张量的元素数量； sum() 对所有参数的元素数量求和
+        fn = lambda o, p: o + f"{p/1e6:<.3f} M params." # 定义一个新的函数fn，输出原始描述信息和参数数量（以百万为单位）
+        # o是描述信息字符串， f"{p/1e6:<.3f} M params."是格式化信息，{p/1e6:<.3f}是p以百万为单位、左对齐、保留三位小数的写法
+        # setattr 用于动态给对象设置属性
+        setattr(m, "extra_repr", partial(fn, o=o, p=p)) # 使用`partial`将新的函数赋值给模块的`extra_repr`
+    print(supercodec)
+    print("Total # of params:", sum([np.prod(p.size()) for p in  supercodec.parameters()]))

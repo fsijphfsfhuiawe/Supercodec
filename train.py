@@ -25,6 +25,7 @@ from losses import total_loss, disc_loss
 
 torch.backends.cudnn.benchmark = True
 
+#xxx: 没有在哪用到的
 def accum_log(log, new_logs):
     for key, new_value in new_logs.items():
         old_value = log.get(key, 0.)
@@ -33,6 +34,7 @@ def accum_log(log, new_logs):
 
 def train(rank, a, h):
     if h.num_gpus > 1:
+        #tag: 修改使用gpu数量，检查输出
         init_process_group(backend=h.dist_config['dist_backend'], init_method=h.dist_config['dist_url'], world_size=h.dist_config['world_size'] * h.num_gpus, rank=rank)
     torch.cuda.manual_seed(h.seed)
     device = torch.device('cuda:{:d}'.format(rank))
@@ -46,10 +48,7 @@ def train(rank, a, h):
         channel_mults=h.channel_mults,
         training=True
         )
-
     supercodec = supercodec.to(device)
-
-    # DDP(model, device_ids=[rank], find_unused_parameters=True)
 
     disc_model = MultiScaleSTFTDiscriminator(filters=h.filters)
     disc_model = disc_model.to(device)
@@ -158,7 +157,7 @@ def train(rank, a, h):
 
             wave = wave.unsqueeze(1)
 
-            #Discriminator
+            # Discriminator
             logits_real, fmap_real = disc_model(wave)
             optim_d.zero_grad()
             logits_fake, fmap_fake = disc_model(recon_g.detach())
@@ -274,21 +273,15 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--group_name', default=None)
-    # parser.add_argument('--input_wavs_dir', default="/home/datasets2/data_yifan/")
-    # parser.add_argument('--input_wavs_dir_validation', default="/home/datasets2/data_yifan/")
-    # parser.add_argument('--input_training_file', default="/home/datasets2/data_yifan/librispeech/LibriSpeech/train-clean-100.txt")
-    # parser.add_argument('--input_validation_file',
-    #                     default="/home/datasets2/data_yifan/librispeech/LibriSpeech/validation.txt")
-    
     parser.add_argument('--input_wavs_dir', default="/home/datasets2/youqiang/")
     parser.add_argument('--input_wavs_dir_validation', default="/home/datasets2/youqiang/")
     parser.add_argument('--input_training_file', default="/home/datasets2/youqiang/Librispeech/training.txt")
     parser.add_argument('--input_validation_file',
                         default="/home/datasets2/youqiang/Librispeech/validation.txt")
+    #tag: 修改路径
+    parser.add_argument('--checkpoint_path', default='/home/datasets2/data_yifan/checkpoint/super-codec_now8') # 2 GPU & batchsize 32 & lr = 0.0002 
     # parser.add_argument('--checkpoint_path', default='/home/datasets2/data_yifan/checkpoint/super-codec') # 1 GPU & batchsize 8 
-    # ! 改输出路径
-    # parser.add_argument('--checkpoint_path', default='/home/datasets2/data_yifan/checkpoint/super-codec-main_1-32') # 1 GPU & batchsize 32
-    parser.add_argument('--checkpoint_path', default='/home/datasets2/data_yifan/checkpoint/super-codec-main_1-16') # 1 GPU & batchsize 8 
+    # parser.add_argument('--checkpoint_path', default='/home/datasets2/data_yifan/checkpoint/super-codec_lr0001') # 1 GPU & batchsize 32 & lr=0.0001
     
     parser.add_argument('--config', default='config_v1.json')
     parser.add_argument('--training_epochs', default=3100, type=int)
